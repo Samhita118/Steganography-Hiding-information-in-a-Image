@@ -1,0 +1,135 @@
+import cv2
+import string
+import os
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+import hashlib
+import numpy as np # Moved import to the top
+from google.colab.patches import cv2_imshow # Import for displaying images in Colab
+
+
+def derive_key(userkey):
+    return hashlib.sha256(userkey.encode()).digest()[:16]
+
+def encrypt_msg(msg, userkey):
+    key = derive_key(userkey) #hashing key
+    cipher = AES.new(key, AES.MODE_CBC)
+    ct = cipher.encrypt(pad(msg.encode(), AES.block_size))
+    return cipher.iv + ct
+
+def decrypt_message(cipher_bytes, userkey):
+    key = derive_key(userkey)
+    iv = cipher_bytes[:16]
+    ct = cipher_bytes[16:]
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    return unpad(cipher.decrypt(ct), AES.block_size).decode()
+
+
+d = {}
+c = {}
+for i in range(256):
+    d[chr(i)] = i
+    c[i] = chr(i)
+
+# Use a raw string for the file path
+# In Colab, you generally upload files or access them from Google Drive/Cloud Storage
+# Replace with the actual path to your image file in Colab or the name of the uploaded file
+try:
+    # Assuming the user has uploaded an image named 'uploaded_image.jpg'
+    # Replace 'uploaded_image.jpg' with the actual name of your uploaded file
+    image_path = "encrypted_img(1).jpg" # Use the name of the uploaded file
+    x = cv2.imread(image_path)
+    if x is None:
+        raise FileNotFoundError(f"Image not found at the specified path: {image_path}")
+except FileNotFoundError as e:
+    print(e)
+    # Create a dummy image if the file is not found for demonstration purposes
+    x = np.zeros((100, 100, 3), dtype=np.uint8)
+    print("Using a dummy image for demonstration.")
+
+
+i, j = x.shape[0], x.shape[1]
+print("Image size :", i, j)
+
+key = input("Enter key to encrypt & hide(Security Key) :")
+text = input("Enter the text to hide:")
+
+encrypted_bytes = encrypt_msg(text, key)
+l = len(encrypted_bytes)
+print(f"Encrypted message length(in bytes) :{l}")
+
+n = 0
+m = 0
+z = 0
+kl = 0
+# Create a copy of the image to store the encrypted data
+x_enc = x.copy()
+for i in range(l):
+    # Ensure we don't go out of bounds of the image
+    if n >= x_enc.shape[0] or m >= x_enc.shape[1] or z >= x_enc.shape[2]:
+        print("Warning: Encrypted message is larger than the image size. Stopping encryption.")
+        break
+    # XOR the pixel value with the corresponding encrypted byte and key character value
+    # Ensure that the result stays within the valid range for uint8 (0-255)
+    x_enc[n, m, z] = (encrypted_bytes[i] ^ d[key[kl % len(key)]]) % 256
+    n = n + 1
+    # Move to the next pixel
+    if n >= x_enc.shape[0]:
+        n = 0
+        m = m + 1
+        if m >= x_enc.shape[1]:
+            m = 0
+            z = z + 1
+            if z >= x_enc.shape[2]:
+                break # Stop if we've covered all color channels
+
+    kl = (kl + 1) % len(key)
+
+# Use cv2.imwrite to save the image
+cv2.imwrite("encrypted_img.jpg", x_enc)
+print("Data successfully hideen and image saved as 'encrypted_img.jpg'.")
+
+# Display the encrypted image
+print("Displaying encrypted image:")
+# Convert to grayscale for potentially better visualization of encrypted data
+x_enc_gray = cv2.cvtColor(x_enc, cv2.COLOR_BGR2GRAY)
+cv2_imshow(x_enc_gray)
+
+
+n, m, z = 0, 0, 0
+kl = 0
+ch = int(input("\nEnter 1 to extract data from image :"))
+if ch == 1:
+    key1 = input("Re-enter key to extract text: ")
+    if key == key1:
+       encrypted_back = bytearray()
+       for i in range(l):
+        # Ensure we don't go out of bounds of the image
+        if n >= x_enc.shape[0] or m >= x_enc.shape[1] or z >= x_enc.shape[2]:
+            print("Warning: Reached end of image while extracting.")
+            break
+        # XOR the pixel value with the corresponding key character value to get back the encrypted byte
+        encrypted_back.append(x_enc[n, m, z] ^ d[key1[kl % len(key1)]])
+        n = n + 1
+        # Move to the next pixel
+        if n >= x_enc.shape[0]:
+            n = 0
+            m = m + 1
+            if m >= x_enc.shape[1]:
+                m = 0
+                z = z + 1
+                if z >= x_enc.shape[2]:
+                    break # Stop if we've covered all color channels
+
+        kl = (kl + 1) % len(key1)
+
+       try:
+            decrypted = decrypt_message(bytes(encrypted_back), key1)
+            print("Decrypted secret message : " , decrypted)
+       except Exception as e:
+            print(f"Decryption failed. Possibly wrong key, corrupted image, or other error: {e}")
+    else:
+        print("Key mismatch. Try later")
+else:
+    print("Thank you. Exiting. ")
